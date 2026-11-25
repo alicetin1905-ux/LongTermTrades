@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Long Trades</title>
+<meta name="description" content="Live dashboard van 8 long posities op 5x, met Bybit-koersen.">
+<meta name="theme-color" content="#0a0d13">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0d13'/%3E%3Cpath d='M6 22l7-7 5 4 8-10' stroke='%2334e0a1' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="bar">
+  <div class="wrap bar-in">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 23l7-7 5 4 9-11" /></svg>
+      <span>Long Trades</span>
+    </div>
+    <div class="bar-right">
+      <span class="status" id="status" data-state="connecting"><i></i><span id="status-text">Verbinden…</span></span>
+      <span class="muted small" id="updated"></span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap hero-in">
+      <div class="hero-main">
+        <p class="label">Ongerealiseerde PnL, 8 longs op 5x</p>
+        <div class="hero-pnl" id="h-pnl-wrap"><span id="h-pnl">—</span><span class="unit">USDT</span></div>
+        <div class="hero-roe"><span id="h-roe" class="chip">—</span> <span class="muted">ROE op <span id="h-margin">—</span> marge</span></div>
+        <p class="hero-line" id="h-line">Koersen van Bybit laden…</p>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span class="label">Positiegrootte</span><b id="k-size">—</b><small>nu waard <span id="k-value">—</span></small></div>
+        <div class="kpi"><span class="label">In de plus</span><b id="k-winners">—</b><small>van de 8 posities</small></div>
+        <div class="kpi"><span class="label">Verlies als alle SL's raken</span><b class="down" id="k-loss">—</b><small><span id="k-losspct">—</span> van je marge</small></div>
+        <div class="kpi"><span class="label">Funding per dag</span><b id="k-fund">—</b><small>bij huidige funding rates</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap sec" id="posities">
+    <div class="sec-head">
+      <div>
+        <h2>Posities</h2>
+        <p class="muted">Bybit markprijs, live. PnL en afstanden rekenen met de markprijs, net als je liquidatie. Bedragen in USDT.</p>
+      </div>
+      <div class="seg" role="group" aria-label="Sorteer posities">
+        <button type="button" data-sort="default" aria-pressed="true">Standaard</button>
+        <button type="button" data-sort="pnl" aria-pressed="false">PnL</button>
+        <button type="button" data-sort="risk" aria-pressed="false">Dichtst bij SL</button>
+        <button type="button" data-sort="day" aria-pressed="false">24u</button>
+      </div>
+    </div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section class="wrap sec" id="overzicht">
+    <div class="sec-head">
+      <div>
+        <h2>Alle trades op één schaal</h2>
+        <p class="muted">In % vanaf je entry. De balk loopt van entry naar de markprijs; rood blok is de zone tussen liquidatie en stop-loss.</p>
+      </div>
+    </div>
+    <div class="panel"><div class="ladder" id="ladder" role="img" aria-label="Per trade de markprijs, stop-loss en liquidatie in procent vanaf de entry"></div></div>
+  </section>
+
+  <section class="wrap sec" id="scenario">
+    <div class="sec-head">
+      <div>
+        <h2>Wat als de hele markt beweegt?</h2>
+        <p class="muted">Elke munt beweegt hetzelfde % vanaf nu. Raakt een munt zijn SL, dan telt het verlies bij de SL. Altcoins bewegen in werkelijkheid vaak harder dan BTC.</p>
+      </div>
+    </div>
+    <div class="panel scen">
+      <div class="scen-ctl">
+        <label for="move">Beweging vanaf nu <b id="s-pct">-10%</b></label>
+        <input type="range" id="move" min="-30" max="50" step="1" value="-10">
+        <div class="scen-presets">
+          <button type="button" data-move="-20">-20%</button>
+          <button type="button" data-move="-10">-10%</button>
+          <button type="button" data-move="0">0%</button>
+          <button type="button" data-move="10">+10%</button>
+          <button type="button" data-move="25">+25%</button>
+        </div>
+        <div class="scen-big" id="s-pnl">—</div>
+        <p class="muted small" id="s-stops">—</p>
+      </div>
+      <div class="scen-bars" id="s-bars"></div>
+    </div>
+  </section>
+
+  <section class="wrap sec" id="tabel">
+    <div class="sec-head"><div><h2>Tabel</h2></div></div>
+    <div class="panel scroll">
+      <table class="tbl">
+        <thead><tr><th>Munt</th><th>Mark</th><th>24u</th><th>Entry</th><th>PnL</th><th>ROE</th><th>Tot SL</th><th>Tot liq</th><th>Verlies bij SL</th><th>Marge</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="wrap foot">
+    <p>Koersen: Bybit USDT-perpetuals (markprijs, live via WebSocket; 7-daagse grafiek uit 4-uurs candles). Entry, SL en liquidatieprijs zoals ingevoerd in <code>trades.js</code>. Positiegrootte = marge × hefboom. Geen financieel advies.</p>
+  </footer>
+</main>
+
+<script src="trades.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
