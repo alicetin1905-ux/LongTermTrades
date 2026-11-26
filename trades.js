@@ -29,7 +29,7 @@ window.TRADES = [
     opened: null, // exact vulmoment, bijv. '2026-11-19' of '2026-11-19T16:00:00Z' (optioneel)
     tps: [{ label: '2x', price: 0.58, pct: 25 }, { label: 'ATH', price: 2.14, pct: 25 }, { label: 'Cyclus', price: 3.05, pct: 50 }] },
   { name: '1000PEPE', symbol: '1000PEPEUSDT', entry: 0.0037891, sl: 0.00307, liq: 0.003059, margin: 249, leverage: 5, coingecko: 'pepe', cgMult: 1000, ath: 0.02803, athDate: '2024-12-09',
-    opened: null, // exact vulmoment, bijv. '2026-11-19' of '2026-11-19T16:00:00Z' (optioneel)
+    opened: '2026-11-16T04:00:00Z', // uit Bybit: eerste funding 16-11 09:00 (NL-tijd), dus gevuld tussen 01:00 en 09:00
     tps: [{ label: '2x', price: 0.0076, pct: 25 }, { label: 'ATH', price: 0.028, pct: 25 }, { label: 'Cyclus', price: 0.04, pct: 50 }] },
   { name: 'QNT',      symbol: 'QNTUSDT',      entry: 150,       sl: 122,     liq: 121.22,   margin: 150, leverage: 5, coingecko: 'quant-network', ath: 427.42, athDate: '2021-09-11',
     opened: null, // exact vulmoment, bijv. '2026-11-19' of '2026-11-19T16:00:00Z' (optioneel)
