@@ -14,7 +14,7 @@ window.TRADES = [
     opened: '2026-11-17T12:00:00Z', // uit Bybit: eerste funding 17-11 17:00 (NL-tijd), dus gevuld tussen 09:00 en 17:00
     tps: [{ label: 'TP1', price: 100000, pct: 25 }, { label: 'ATH', price: 126080, pct: 25 }, { label: 'Cyclus', price: 180000, pct: 50 }] },
   { name: 'ETH',      symbol: 'ETHUSDT',      entry: 1794,      sl: 1450,    liq: 1440,     margin: 302, leverage: 5, coingecko: 'ethereum', ath: 4946.05, athDate: '2025-08-24',
-    opened: null, // exact vulmoment, bijv. '2026-11-19' of '2026-11-19T16:00:00Z' (optioneel)
+    opened: '2026-11-17T12:00:00Z', // uit Bybit: eerste funding 17-11 17:00 (NL-tijd), dus gevuld tussen 09:00 en 17:00
     tps: [{ label: '2x', price: 3588, pct: 25 }, { label: 'ATH', price: 4946, pct: 25 }, { label: 'Cyclus', price: 7060, pct: 50 }] },
   { name: 'SOL',      symbol: 'SOLUSDT',      entry: 71.07,     sl: 57.5,    liq: 57.3,     margin: 323, leverage: 5, coingecko: 'solana', ath: 293.31, athDate: '2025-01-19',
     opened: null, // exact vulmoment, bijv. '2026-11-19' of '2026-11-19T16:00:00Z' (optioneel)
