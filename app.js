@@ -6,6 +6,7 @@
   const WS_URL = 'wss://stream.bybit.com/v5/public/linear';
   const NEAR_SL = 8; // % afstand tot SL waarbij een tegel oranje oplicht
   const START = Date.now();
+  const SVGNS = 'http://www.w3.org/2000/svg';
 
   const state = {
     tickers: {},   // symbol -> laatste Bybit ticker (snapshot + deltas)
@@ -34,7 +35,14 @@
   const tone = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const $ = (id) => document.getElementById(id);
-  const setText = (el, text, cls) => { if (!el) return; if (el.textContent !== text) el.textContent = text; if (cls !== undefined) el.className = cls; };
+  const setText = (el, text, cls) => {
+    if (!el) return;
+    if (el.textContent !== text) el.textContent = text;
+    if (cls !== undefined && el.className !== cls) el.className = cls;
+  };
+  const setAttr = (el, k, v) => { v = String(v); if (el.getAttribute(k) !== v) el.setAttribute(k, v); };
+  const setStyle = (el, k, v) => { if (el.style[k] !== v) el.style[k] = v; };
+  const svgEl = (tag, attrs) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
 
   /* ---------- calculations ---------- */
   function calc(t) {
@@ -58,19 +66,17 @@
       toSl: has ? (mark - t.sl) / mark * 100 : null,
       toLiq: has ? (mark - t.liq) / mark * 100 : null,
       lossSl: q * (t.sl - t.entry),
-      lossSlPct: -q * (t.sl - t.entry) / t.margin * 100,
       chg24: tk.price24hPcnt != null ? parseFloat(tk.price24hPcnt) * 100 : null,
       high24: parseFloat(tk.highPrice24h) || null,
       low24: parseFloat(tk.lowPrice24h) || null,
       funding: isFinite(fr) ? fr * 100 : null,
       fundingDay: isFinite(fr) && has ? -value * fr * (24 / fInt) : null,
-      nextFunding: parseFloat(tk.nextFundingTime) || null,
       closes,
       chg7d: closes.length > 1 && has ? (mark / closes[0] - 1) * 100 : null
     };
   }
 
-  /* ---------- tiles (built once, updated in place) ---------- */
+  /* ---------- tiles: built once, then only attributes and text change ---------- */
   const tileEls = {};
   function buildTiles() {
     const box = $('tiles');
@@ -89,10 +95,20 @@
         </div>
         <div class="t-pnl"><b data-k="pnl">—</b><span data-k="roe">—</span></div>
         <div>
-          <svg class="spark" viewBox="0 0 100 52" preserveAspectRatio="none" role="img" aria-label="${esc(t.name)} koers 7 dagen" data-k="spark"></svg>
+          <svg class="spark" viewBox="0 0 100 52" preserveAspectRatio="none" role="img" aria-label="${esc(t.name)} koers 7 dagen">
+            <defs><linearGradient id="g-${esc(t.symbol)}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-opacity=".28"/><stop offset="1" stop-opacity="0"/></linearGradient></defs>
+            <polygon data-k="sArea" fill="url(#g-${esc(t.symbol)})" points=""/>
+            <line data-k="sEntry" x1="0" x2="100" stroke="var(--ref)" stroke-dasharray="3 3" vector-effect="non-scaling-stroke" visibility="hidden"/>
+            <polyline data-k="sLine" fill="none" stroke-width="1.75" stroke-linejoin="round" vector-effect="non-scaling-stroke" points=""/>
+          </svg>
           <div class="spark-cap"><span>7d <b data-k="chg7d">—</b></span><span data-k="range7d">—</span></div>
         </div>
-        <div class="rail" data-k="rail" role="img"></div>
+        <div class="rail" data-k="rail" role="img">
+          <div class="tr"></div><div class="zone" data-k="rZone"></div><div class="fill" data-k="rFill"></div>
+          <div class="mk" data-k="rLiq" style="background:var(--down)"></div><div class="mk" data-k="rSl" style="background:var(--warn)"></div>
+          <div class="en" data-k="rEntry"></div><div class="dot" data-k="rDot"></div>
+          <span class="lb" style="left:0">liq / SL</span><span class="lb" data-k="rEntryLb" style="transform:translateX(-50%)">entry</span>
+        </div>
         <dl class="dl">
           <div><dt>Entry</dt><dd>${price(t.entry)}</dd></div>
           <div><dt>Vs entry</dt><dd data-k="move">—</dd></div>
@@ -113,40 +129,43 @@
         </dl>`;
       const refs = {};
       el.querySelectorAll('[data-k]').forEach((n) => { refs[n.dataset.k] = n; });
+      refs.stops = el.querySelectorAll('stop');
       tileEls[t.symbol] = { el, refs };
       box.appendChild(el);
     });
   }
 
-  function sparkSvg(r) {
+  function updateSpark(refs, r) {
     const s = r.mark != null ? [...r.closes, r.mark] : r.closes;
-    if (s.length < 2) return '';
+    if (s.length < 2) return;
     const lo = Math.min(...s), hi = Math.max(...s), span = hi - lo || 1;
     const y = (v) => (48 - (v - lo) / span * 44).toFixed(2);
-    const pts = s.map((v, i) => (i / (s.length - 1) * 100).toFixed(2) + ',' + y(v));
+    const pts = s.map((v, i) => (i / (s.length - 1) * 100).toFixed(2) + ',' + y(v)).join(' ');
     const col = (r.chg7d ?? 0) >= 0 ? 'var(--up)' : 'var(--down)';
-    const id = 'g' + r.symbol;
-    let out = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>`;
-    out += `<polygon points="0,52 ${pts.join(' ')} 100,52" fill="url(#${id})"/>`;
-    if (r.entry >= lo && r.entry <= hi) out += `<line x1="0" x2="100" y1="${y(r.entry)}" y2="${y(r.entry)}" stroke="var(--ref)" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`;
-    out += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="1.75" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
-    return out;
+    setAttr(refs.sLine, 'points', pts);
+    setAttr(refs.sArea, 'points', '0,52 ' + pts + ' 100,52');
+    setStyle(refs.sLine, 'stroke', col);
+    refs.stops.forEach((st) => setStyle(st, 'stopColor', col));
+    const inRange = r.entry >= lo && r.entry <= hi;
+    setAttr(refs.sEntry, 'visibility', inRange ? 'visible' : 'hidden');
+    if (inRange) { setAttr(refs.sEntry, 'y1', y(r.entry)); setAttr(refs.sEntry, 'y2', y(r.entry)); }
   }
 
-  function railHtml(r) {
-    if (r.move == null) return '';
+  function updateRail(refs, r) {
+    if (r.move == null) return;
     const lo = r.liqPct - 3, hi = Math.max(r.move, 0) + 6;
     const p = (v) => ((v - lo) / (hi - lo) * 100).toFixed(2) + '%';
-    const w = (Math.abs(r.move) / (hi - lo) * 100).toFixed(2) + '%';
-    return `<div class="tr"></div>
-      <div class="zone" style="left:${p(r.liqPct)};width:calc(${p(r.slPct)} - ${p(r.liqPct)} + 3px)"></div>
-      <div class="fill" style="left:${p(Math.min(0, r.move))};width:${w};background:${r.move >= 0 ? 'var(--up)' : 'var(--down)'}"></div>
-      <div class="mk" style="left:${p(r.liqPct)};background:var(--down)"></div>
-      <div class="mk" style="left:${p(r.slPct)};background:var(--warn)"></div>
-      <div class="en" style="left:${p(0)}"></div>
-      <div class="dot" style="left:${p(r.move)}"></div>
-      <span class="lb" style="left:0">liq / SL</span>
-      <span class="lb" style="left:${p(0)};transform:translateX(-50%)">entry</span>`;
+    setStyle(refs.rZone, 'left', p(r.liqPct));
+    setStyle(refs.rZone, 'width', `calc(${p(r.slPct)} - ${p(r.liqPct)} + 3px)`);
+    setStyle(refs.rFill, 'left', p(Math.min(0, r.move)));
+    setStyle(refs.rFill, 'width', (Math.abs(r.move) / (hi - lo) * 100).toFixed(2) + '%');
+    setStyle(refs.rFill, 'background', r.move >= 0 ? 'var(--up)' : 'var(--down)');
+    setStyle(refs.rLiq, 'left', p(r.liqPct));
+    setStyle(refs.rSl, 'left', p(r.slPct));
+    setStyle(refs.rEntry, 'left', p(0));
+    setStyle(refs.rEntryLb, 'left', p(0));
+    setStyle(refs.rDot, 'left', p(r.move));
+    setAttr(refs.rail, 'aria-label', `${r.name}: ${pct(r.move, true)} vanaf entry, SL op ${pct(r.slPct, true)}, liquidatie op ${pct(r.liqPct, true)}`);
   }
 
   function updateTile(r) {
@@ -159,7 +178,7 @@
       refs.price.classList.add(r.mark > prev ? 'flash-up' : 'flash-down');
     }
     state.shown[r.symbol] = r.mark;
-    setText(refs.last, r.last != null ? 'Laatste trade ' + price(r.last) : '\u00a0');
+    setText(refs.last, r.last != null ? 'Laatste trade ' + price(r.last) : ' ');
     setText(refs.chg, pct(r.chg24, true) + ' 24u', 't-chg ' + tone(r.chg24));
     setText(refs.pnl, usd(r.pnl), tone(r.pnl));
     setText(refs.roe, 'ROE ' + pct(r.roe, true), tone(r.roe));
@@ -173,20 +192,18 @@
     setText(refs.high24, price(r.high24));
     setText(refs.funding, r.funding == null ? '—' : sign(r.funding) + NF[4].format(Math.abs(r.funding)) + '%');
     setText(refs.fundDay, usd(r.fundingDay, false), tone(r.fundingDay));
-    refs.spark.innerHTML = sparkSvg(r);
-    refs.rail.innerHTML = railHtml(r);
-    refs.rail.setAttribute('aria-label', `${r.name}: ${pct(r.move, true)} vanaf entry, SL op ${pct(r.slPct, true)}, liquidatie op ${pct(r.liqPct, true)}`);
+    updateSpark(refs, r);
+    updateRail(refs, r);
     el.classList.toggle('near', r.toSl != null && r.toSl < NEAR_SL);
   }
 
   function sortRows(rows) {
     const by = {
-      default: () => 0,
       pnl: (a, b) => (b.pnl ?? -1e12) - (a.pnl ?? -1e12),
       risk: (a, b) => (a.toSl ?? 1e9) - (b.toSl ?? 1e9),
       day: (a, b) => (b.chg24 ?? -1e9) - (a.chg24 ?? -1e9)
     }[state.sort];
-    return state.sort === 'default' ? rows : [...rows].sort(by);
+    return by ? [...rows].sort(by) : rows;
   }
 
   /* ---------- summary ---------- */
@@ -197,9 +214,12 @@
     const loss = sum('lossSl');
     setText($('h-margin'), usd0(margin));
     if (!live.length) return;
-    setText($('h-pnl'), usd(pnl, false)); $('h-pnl-wrap').className = 'hero-pnl ' + tone(pnl);
+    setText($('h-pnl'), usd(pnl, false));
+    setAttr($('h-pnl-wrap'), 'class', 'hero-pnl ' + tone(pnl));
     setText($('h-roe'), pct(roe, true), 'chip ' + tone(roe));
-    document.querySelector('.hero').style.setProperty('--glow', pnl >= 0 ? 'rgba(52,224,161,.16)' : 'rgba(255,84,112,.16)');
+    const glow = pnl >= 0 ? 'rgba(52,224,161,.16)' : 'rgba(255,84,112,.16)';
+    const hero = document.querySelector('.hero');
+    if (hero.style.getPropertyValue('--glow') !== glow) hero.style.setProperty('--glow', glow);
     setText($('k-size'), usd0(sum('size')));
     setText($('k-value'), usd0(sum('value', live)));
     setText($('k-winners'), String(live.filter((r) => r.pnl > 0).length));
@@ -210,16 +230,19 @@
     const near = live.reduce((a, r) => (a == null || r.toSl < a.toSl ? r : a), null);
     const best = live.reduce((a, r) => (a == null || r.roe > a.roe ? r : a), null);
     const worst = live.reduce((a, r) => (a == null || r.roe < a.roe ? r : a), null);
-    const line = $('h-line');
-    line.innerHTML = `Het dichtst bij een stop-loss zit <b>${esc(near.name)}</b>, nog <b class="${near.toSl < NEAR_SL ? 'down' : ''}">${pct(near.toSl)}</b> boven de SL. ` +
-      `Beste trade: <b class="${tone(best.roe)}">${esc(best.name)} ${pct(best.roe, true)}</b>, slechtste: <b class="${tone(worst.roe)}">${esc(worst.name)} ${pct(worst.roe, true)}</b>.`;
+    $('h-msg').hidden = true; $('h-line').hidden = false;
+    setText($('l-near'), near.name);
+    setText($('l-nearpct'), pct(near.toSl), near.toSl < NEAR_SL ? 'down' : '');
+    setText($('l-best'), best.name + ' ' + pct(best.roe, true), tone(best.roe));
+    setText($('l-worst'), worst.name + ' ' + pct(worst.roe, true), tone(worst.roe));
   }
 
-  /* ---------- ladder chart ---------- */
+  /* ---------- ladder chart: rebuilt only when width, scale or order changes ---------- */
+  let ladder = null;
   function drawLadder(rows) {
     const el = $('ladder');
     const data = rows.filter((r) => r.move != null);
-    if (!data.length) { el.innerHTML = '<p class="muted">Wacht op koersen…</p>'; return; }
+    if (!data.length) { if (!ladder) el.innerHTML = '<p class="muted">Wacht op koersen…</p>'; return; }
     const W = el.clientWidth, rowH = 44, m = { t: 26, r: 64, b: 8, l: 86 };
     const H = m.t + data.length * rowH + m.b;
     const vals = data.flatMap((r) => [r.liqPct, r.move]);
@@ -228,41 +251,54 @@
     d0 = Math.floor(d0 / step) * step; d1 = Math.ceil(d1 / step) * step;
     const x = (v) => m.l + (v - d0) / (d1 - d0) * (W - m.l - m.r);
     const y = (i) => m.t + i * rowH + rowH / 2;
-    let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
-    for (let v = d0; v <= d1 + 1e-9; v += step) {
-      s += `<line x1="${x(v)}" x2="${x(v)}" y1="${m.t - 6}" y2="${H - m.b}" stroke="${v === 0 ? 'var(--ref)' : 'var(--line)'}" ${v === 0 ? 'stroke-dasharray="4 3"' : ''}/>`;
-      s += `<text class="tk" x="${x(v)}" y="${m.t - 11}" text-anchor="middle">${v > 0 ? '+' : ''}${v}%</text>`;
-    }
-    data.forEach((r, i) => {
-      const yy = y(i), c = r.move >= 0 ? 'var(--up)' : 'var(--down)';
-      s += `<g data-i="${i}">`;
-      s += `<line x1="${m.l}" x2="${W - m.r}" y1="${yy}" y2="${yy}" stroke="var(--line2)" stroke-width="6" stroke-linecap="round"/>`;
-      s += `<rect x="${x(r.liqPct)}" y="${yy - 9}" width="${Math.max(3, x(r.slPct) - x(r.liqPct))}" height="18" rx="3" fill="var(--down-bg)"/>`;
-      s += `<line x1="${x(r.liqPct)}" x2="${x(r.liqPct)}" y1="${yy - 10}" y2="${yy + 10}" stroke="var(--down)" stroke-width="2.5"/>`;
-      s += `<line x1="${x(r.slPct)}" x2="${x(r.slPct)}" y1="${yy - 10}" y2="${yy + 10}" stroke="var(--warn)" stroke-width="2.5"/>`;
-      s += `<line x1="${x(0)}" x2="${x(r.move)}" y1="${yy}" y2="${yy}" stroke="${c}" stroke-width="6" stroke-linecap="round"/>`;
-      s += `<circle cx="${x(r.move)}" cy="${yy}" r="6.5" fill="var(--ink)" stroke="var(--panel)" stroke-width="2.5"/>`;
-      s += `<text x="0" y="${yy + 4}" font-weight="600">${esc(r.name)}</text>`;
-      s += `<text x="${W}" y="${yy + 4}" text-anchor="end" fill="${c}">${pct(r.move, true)}</text>`;
-      s += `<rect x="0" y="${yy - rowH / 2}" width="${W}" height="${rowH}" fill="transparent"/></g>`;
-    });
-    s += '</svg><div class="tip" hidden></div>';
-    el.innerHTML = s;
-    const tip = el.querySelector('.tip');
-    el.querySelectorAll('g[data-i]').forEach((g) => {
-      const r = data[+g.dataset.i], i = +g.dataset.i;
-      g.addEventListener('pointerenter', () => {
-        tip.innerHTML = `<b>${esc(r.name)}</b>Mark: ${price(r.mark)}<br>Vs entry: ${pct(r.move, true)}<br>PnL: ${usd(r.pnl)}<br>Tot SL: ${pct(r.toSl)}<br>Tot liquidatie: ${pct(r.toLiq)}`;
-        tip.hidden = false;
-        const tw = tip.offsetWidth;
-        tip.style.left = Math.max(0, Math.min(W - tw, x(r.move) - tw / 2)) + 'px';
-        tip.style.top = (y(i) + 14) + 'px';
+    const key = [W, d0, d1, step, data.map((r) => r.symbol).join()].join('|');
+
+    if (!ladder || ladder.key !== key) {
+      const svg = svgEl('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+      for (let v = d0; v <= d1 + 1e-9; v += step) {
+        svg.appendChild(svgEl('line', { x1: x(v), x2: x(v), y1: m.t - 6, y2: H - m.b, stroke: v === 0 ? 'var(--ref)' : 'var(--line)', 'stroke-dasharray': v === 0 ? '4 3' : 'none' }));
+        const t = svgEl('text', { class: 'tk', x: x(v), y: m.t - 11, 'text-anchor': 'middle' }); t.textContent = (v > 0 ? '+' : '') + v + '%'; svg.appendChild(t);
+      }
+      const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true;
+      const refs = data.map((r, i) => {
+        const yy = y(i), g = svgEl('g', {});
+        g.appendChild(svgEl('line', { x1: m.l, x2: W - m.r, y1: yy, y2: yy, stroke: 'var(--line2)', 'stroke-width': 6, 'stroke-linecap': 'round' }));
+        g.appendChild(svgEl('rect', { x: x(r.liqPct), y: yy - 9, width: Math.max(3, x(r.slPct) - x(r.liqPct)), height: 18, rx: 3, fill: 'var(--down-bg)' }));
+        g.appendChild(svgEl('line', { x1: x(r.liqPct), x2: x(r.liqPct), y1: yy - 10, y2: yy + 10, stroke: 'var(--down)', 'stroke-width': 2.5 }));
+        g.appendChild(svgEl('line', { x1: x(r.slPct), x2: x(r.slPct), y1: yy - 10, y2: yy + 10, stroke: 'var(--warn)', 'stroke-width': 2.5 }));
+        const fill = svgEl('line', { x1: x(0), y1: yy, y2: yy, 'stroke-width': 6, 'stroke-linecap': 'round' });
+        const dot = svgEl('circle', { cy: yy, r: 6.5, fill: 'var(--ink)', stroke: 'var(--panel)', 'stroke-width': 2.5 });
+        const name = svgEl('text', { x: 0, y: yy + 4, 'font-weight': 600 }); name.textContent = r.name;
+        const val = svgEl('text', { x: W, y: yy + 4, 'text-anchor': 'end' });
+        const hit = svgEl('rect', { x: 0, y: yy - rowH / 2, width: W, height: rowH, fill: 'transparent' });
+        g.append(fill, dot, name, val, hit);
+        hit.addEventListener('pointerenter', () => {
+          const d = ladder.data[i];
+          tip.innerHTML = `<b>${esc(d.name)}</b>Mark: ${price(d.mark)}<br>Vs entry: ${pct(d.move, true)}<br>PnL: ${usd(d.pnl)}<br>Tot SL: ${pct(d.toSl)}<br>Tot liquidatie: ${pct(d.toLiq)}`;
+          tip.hidden = false;
+          const tw = tip.offsetWidth;
+          tip.style.left = Math.max(0, Math.min(W - tw, x(d.move) - tw / 2)) + 'px';
+          tip.style.top = (yy + 14) + 'px';
+        });
+        hit.addEventListener('pointerleave', () => { tip.hidden = true; });
+        svg.appendChild(g);
+        return { fill, dot, val };
       });
-      g.addEventListener('pointerleave', () => { tip.hidden = true; });
+      el.replaceChildren(svg, tip);
+      ladder = { key, refs };
+    }
+    ladder.data = data;
+    data.forEach((r, i) => {
+      const c = r.move >= 0 ? 'var(--up)' : 'var(--down)', f = ladder.refs[i];
+      setAttr(f.fill, 'x2', x(r.move).toFixed(1)); setAttr(f.fill, 'stroke', c);
+      setAttr(f.dot, 'cx', x(r.move).toFixed(1));
+      setAttr(f.val, 'fill', c);
+      if (f.val.textContent !== pct(r.move, true)) f.val.textContent = pct(r.move, true);
     });
   }
 
   /* ---------- scenario ---------- */
+  let scen = null;
   function drawScenario(rows) {
     const k = state.move / 100;
     setText($('s-pct'), pct(state.move, true));
@@ -274,48 +310,67 @@
     const total = res.reduce((a, r) => a + r.pnl, 0), hits = res.filter((r) => r.hit);
     setText($('s-pnl'), usd(total), 'scen-big ' + tone(total));
     setText($('s-stops'), 'Totale PnL in dit scenario. ' + (hits.length ? `${hits.length} stop-loss${hits.length > 1 ? 'es' : ''} geraakt: ${hits.map((h) => h.name).join(', ')}.` : 'Geen stop-loss geraakt.'));
+    const key = res.map((r) => r.name).join();
+    const box = $('s-bars');
+    if (!scen || scen.key !== key) {
+      box.innerHTML = res.map((r) => `<div class="sb"><span>${esc(r.name)}</span><div class="sb-tr"><div class="sb-fill"></div></div><span class="sb-val"></span></div>`).join('');
+      scen = { key, fills: box.querySelectorAll('.sb-fill'), vals: box.querySelectorAll('.sb-val') };
+    }
     const max = Math.max(1, ...res.map((r) => Math.abs(r.pnl)));
-    $('s-bars').innerHTML = res.map((r) => {
-      const w = Math.abs(r.pnl) / max * 50;
-      return `<div class="sb"><span>${esc(r.name)}</span><div class="sb-tr"><div class="sb-fill" style="width:${w}%;left:${r.pnl >= 0 ? 50 : 50 - w}%;background:${r.pnl >= 0 ? 'var(--up)' : 'var(--down)'};opacity:${r.hit ? 0.5 : 1}"></div></div><span class="sb-val ${tone(r.pnl)}">${r.hit ? 'SL ' : ''}${usd(r.pnl, false)}</span></div>`;
-    }).join('');
+    res.forEach((r, i) => {
+      const w = Math.abs(r.pnl) / max * 50, f = scen.fills[i];
+      setStyle(f, 'width', w.toFixed(2) + '%');
+      setStyle(f, 'left', (r.pnl >= 0 ? 50 : 50 - w).toFixed(2) + '%');
+      setStyle(f, 'background', r.pnl >= 0 ? 'var(--up)' : 'var(--down)');
+      setStyle(f, 'opacity', r.hit ? '0.5' : '1');
+      setText(scen.vals[i], (r.hit ? 'SL ' : '') + usd(r.pnl, false), 'sb-val ' + tone(r.pnl));
+    });
   }
 
-  /* ---------- table ---------- */
+  /* ---------- table: rows built once per order, cells updated in place ---------- */
+  const COLS = [
+    ['name', 'Munt', (r) => r.name, () => ''],
+    ['mark', 'Mark', (r) => price(r.mark), () => ''],
+    ['chg24', '24u', (r) => pct(r.chg24, true), (r) => tone(r.chg24)],
+    ['entry', 'Entry', (r) => price(r.entry), () => ''],
+    ['pnl', 'PnL', (r) => usd(r.pnl, false), (r) => tone(r.pnl)],
+    ['roe', 'ROE', (r) => pct(r.roe, true), (r) => tone(r.roe)],
+    ['toSl', 'Tot SL', (r) => pct(r.toSl), (r) => (r.toSl != null && r.toSl < NEAR_SL ? 'down' : '')],
+    ['toLiq', 'Tot liq', (r) => pct(r.toLiq), () => ''],
+    ['lossSl', 'Verlies bij SL', (r) => usd(r.lossSl, false), () => 'down'],
+    ['margin', 'Marge', (r) => NF[0].format(r.margin), () => '']
+  ];
+  let table = null;
   function drawTable(rows) {
-    $('rows').innerHTML = rows.map((r) => `<tr>
-      <td>${esc(r.name)}</td>
-      <td data-l="Mark">${price(r.mark)}</td>
-      <td data-l="24u" class="${tone(r.chg24)}">${pct(r.chg24, true)}</td>
-      <td data-l="Entry">${price(r.entry)}</td>
-      <td data-l="PnL" class="${tone(r.pnl)}">${usd(r.pnl, false)}</td>
-      <td data-l="ROE" class="${tone(r.roe)}">${pct(r.roe, true)}</td>
-      <td data-l="Tot SL" class="${r.toSl != null && r.toSl < NEAR_SL ? 'down' : ''}">${pct(r.toSl)}</td>
-      <td data-l="Tot liq">${pct(r.toLiq)}</td>
-      <td data-l="Verlies bij SL" class="down">${usd(r.lossSl, false)}</td>
-      <td data-l="Marge">${NF[0].format(r.margin)}</td></tr>`).join('');
+    const tb = $('rows');
+    const key = rows.map((r) => r.symbol).join();
+    if (!table || table.key !== key) {
+      tb.innerHTML = rows.map(() => '<tr>' + COLS.map((c, j) => `<td${j ? ` data-l="${esc(c[1])}"` : ''}></td>`).join('') + '</tr>').join('');
+      table = { key, cells: [...tb.rows].map((tr) => [...tr.cells]) };
+    }
+    rows.forEach((r, i) => COLS.forEach((c, j) => setText(table.cells[i][j], c[2](r), c[3](r))));
   }
 
   /* ---------- render loop ---------- */
-  let pending = false, lastLadderW = 0, lastSlow = 0, slowTimer = null;
+  let pending = false, lastOrder = '';
   function render() {
     pending = false;
     const rows = TRADES.map(calc);
     rows.forEach(updateTile);
     const sorted = sortRows(rows);
-    const box = $('tiles');
-    sorted.forEach((r) => box.appendChild(tileEls[r.symbol].el));
-    updateSummary(rows);
-    const now = Date.now(), W = $('ladder').clientWidth;
-    if (now - lastSlow > 1000 || W !== lastLadderW) {
-      lastSlow = now; lastLadderW = W;
-      drawLadder(sorted); drawScenario(sorted); drawTable(sorted);
-    } else if (!slowTimer) {
-      slowTimer = setTimeout(() => { slowTimer = null; lastSlow = 0; schedule(); }, 1000 - (now - lastSlow));
+    const order = sorted.map((r) => r.symbol).join();
+    if (order !== lastOrder) {
+      lastOrder = order;
+      const box = $('tiles');
+      sorted.forEach((r) => box.appendChild(tileEls[r.symbol].el));
     }
+    updateSummary(rows);
+    drawLadder(sorted);
+    drawScenario(sorted);
+    drawTable(sorted);
     updateStatus();
   }
-  function schedule() { if (!pending) { pending = true; setTimeout(() => requestAnimationFrame(render), 250); } }
+  function schedule() { if (!pending) { pending = true; setTimeout(() => requestAnimationFrame(render), 400); } }
 
   function updateStatus() {
     const st = $('status');
@@ -326,9 +381,10 @@
     else if (state.lastTick) { s = 'offline'; text = 'Geen verbinding'; }
     else if (Date.now() - START > 15000) {
       s = 'offline'; text = 'Bybit niet bereikbaar';
-      setText($('h-line'), 'Bybit reageert niet. Controleer je verbinding; de pagina blijft het opnieuw proberen.');
+      setText($('h-msg'), 'Bybit reageert niet. Controleer je verbinding; de pagina blijft het opnieuw proberen.');
     }
-    st.dataset.state = s; setText($('status-text'), text);
+    if (st.dataset.state !== s) st.dataset.state = s;
+    setText($('status-text'), text);
     if (state.lastTick) setText($('updated'), 'Bijgewerkt ' + new Date(state.lastTick).toLocaleTimeString('nl-NL'));
   }
 
@@ -383,9 +439,9 @@
       let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (!msg.topic || !msg.topic.startsWith('tickers.') || !msg.data) return;
       const sym = msg.data.symbol || msg.topic.slice(8);
-      state.tickers[sym] = msg.type === 'snapshot' ? { ...state.tickers[sym], ...msg.data } : { ...(state.tickers[sym] || {}), ...msg.data };
+      state.tickers[sym] = { ...(state.tickers[sym] || {}), ...msg.data };
       state.lastTick = Date.now();
-      schedule();
+      if (!document.hidden) schedule();
     };
     ws.onclose = () => { state.wsOpen = false; clearInterval(pingTimer); updateStatus(); retry(); };
     ws.onerror = () => { try { ws.close(); } catch (e) { /* noop */ } };
@@ -396,13 +452,15 @@
   document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => {
     state.sort = b.dataset.sort;
     document.querySelectorAll('.seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-    lastSlow = 0; render();
+    render();
   }));
   const slider = $('move');
   const setMove = (v) => { state.move = v; slider.value = v; drawScenario(sortRows(TRADES.map(calc))); };
   slider.addEventListener('input', () => setMove(+slider.value));
   document.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', () => setMove(+b.dataset.move)));
-  window.addEventListener('resize', schedule);
+  let lastW = window.innerWidth;
+  window.addEventListener('resize', () => { if (window.innerWidth !== lastW) { lastW = window.innerWidth; schedule(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(); });
 
   /* ---------- start ---------- */
   buildTiles();
