@@ -32,6 +32,6 @@ window.TRADES = [
     opened: '2026-11-16T04:00:00Z', // uit Bybit: eerste funding 16-11 09:00 (NL-tijd), dus gevuld tussen 01:00 en 09:00
     tps: [{ label: '2x', price: 0.0076, pct: 25 }, { label: 'ATH', price: 0.028, pct: 25 }, { label: 'Cyclus', price: 0.04, pct: 50 }] },
   { name: 'QNT',      symbol: 'QNTUSDT',      entry: 150,       sl: 122,     liq: 121.22,   margin: 150, leverage: 5, coingecko: 'quant-network', ath: 427.42, athDate: '2021-09-11',
-    opened: null, // exact vulmoment, bijv. '2026-11-19' of '2026-11-19T16:00:00Z' (optioneel)
+    opened: '2026-11-18T20:00:00Z', // uit Bybit: eerste funding 19-11 01:00 (NL-tijd), dus gevuld 18-11 tussen 17:00 en 01:00
     tps: [{ label: '2x', price: 300, pct: 25 }, { label: 'ATH', price: 427, pct: 25 }, { label: 'Cyclus', price: 610, pct: 50 }] }
 ];
