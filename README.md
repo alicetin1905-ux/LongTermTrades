@@ -4,6 +4,7 @@ Live dashboard voor 8 long posities op 5x, met Bybit-koersen (USDT-perpetuals).
 
 - **Live koersen** via de publieke Bybit WebSocket (markprijs), met REST als terugval.
 - **Tegel per munt**: markprijs, 24u, PnL en ROE, 7-daagse grafiek met entry-lijn, rail met liquidatie / SL / entry, afstand tot SL en liq, funding, verlies bij SL.
+- **ATH-doel per munt**: hoeveel x vanaf je entry, PnL in USDT en wat je marge wordt als de munt zijn all-time high weer haalt (ATH live van CoinGecko).
 - **Overzicht** van alle trades op één %-schaal, **scenario-schuif** (hele markt ±%) en een tabel.
 
 ## Posities aanpassen

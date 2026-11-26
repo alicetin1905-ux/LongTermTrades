@@ -12,7 +12,7 @@
     tickers: {},   // symbol -> laatste Bybit ticker (snapshot + deltas)
     closes: {},    // symbol -> slotkoersen 7 dagen (4u candles)
     ws: null, wsOpen: false, lastTick: 0, restOk: false,
-    sort: 'default', move: -10, shown: {}
+    sort: 'default', move: -10, shown: {}, ath: {}
   };
 
   /* ---------- formatting ---------- */
@@ -71,10 +71,26 @@
       low24: parseFloat(tk.lowPrice24h) || null,
       funding: isFinite(fr) ? fr * 100 : null,
       fundingDay: isFinite(fr) && has ? -value * fr * (24 / fInt) : null,
+      ...athFields(t, q, mark),
       closes,
       chg7d: closes.length > 1 && has ? (mark / closes[0] - 1) * 100 : null
     };
   }
+
+  function athFields(t, q, mark) {
+    const live = state.ath[t.symbol];
+    const ath = live ? live.ath : t.ath, athDate = live ? live.date : t.athDate;
+    if (!(ath > 0)) return { ath: null };
+    const athPnl = q * (ath - t.entry);
+    return {
+      ath, athDate, athX: ath / t.entry, athPnl,
+      athMarginX: (t.margin + athPnl) / t.margin,
+      toAth: mark != null ? (ath / mark - 1) * 100 : null,
+      athProgress: mark != null ? Math.max(0, Math.min(1, (mark - t.entry) / (ath - t.entry))) : 0
+    };
+  }
+  const monthYear = (d) => { const x = new Date(d); return isNaN(x) ? '' : x.toLocaleDateString('nl-NL', { month: 'short', year: 'numeric', timeZone: 'UTC' }); };
+  const xf = (v) => v == null || !isFinite(v) ? '—' : (v >= 100 ? NF[0] : v >= 10 ? NF[1] : NF[2]).format(v) + 'x';
 
   /* ---------- tiles: built once, then only attributes and text change ---------- */
   const tileEls = {};
@@ -102,6 +118,16 @@
             <polyline data-k="sLine" fill="none" stroke-width="1.75" stroke-linejoin="round" vector-effect="non-scaling-stroke" points=""/>
           </svg>
           <div class="spark-cap"><span>7d <b data-k="chg7d">—</b></span><span data-k="range7d">—</span></div>
+        </div>
+        <div class="t-ath">
+          <div class="ath-head"><b>ATH-doel</b><span data-k="athLabel">—</span></div>
+          <div class="ath-bar" role="img" data-k="athBarWrap"><i data-k="athBar"></i></div>
+          <div class="ath-grid">
+            <div><b data-k="athX">—</b><small>vanaf entry</small></div>
+            <div><b class="up" data-k="athPnl">—</b><small>USDT PnL</small></div>
+            <div><b data-k="athMx">—</b><small>op je marge</small></div>
+          </div>
+          <div class="ath-foot" data-k="athFoot">—</div>
         </div>
         <div class="rail" data-k="rail" role="img">
           <div class="tr"></div><div class="zone" data-k="rZone"></div><div class="fill" data-k="rFill"></div>
@@ -194,6 +220,15 @@
     setText(refs.fundDay, usd(r.fundingDay, false), tone(r.fundingDay));
     updateSpark(refs, r);
     updateRail(refs, r);
+    if (r.ath) {
+      setText(refs.athLabel, price(r.ath) + (r.athDate ? ' (' + monthYear(r.athDate) + ')' : ''));
+      setText(refs.athX, xf(r.athX));
+      setText(refs.athPnl, (r.athPnl >= 0 ? '+' : '-') + NF[0].format(Math.abs(r.athPnl)));
+      setText(refs.athMx, xf(r.athMarginX));
+      setStyle(refs.athBar, 'width', (r.athProgress * 100).toFixed(1) + '%');
+      setAttr(refs.athBarWrap, 'aria-label', `${NF[0].format(r.athProgress * 100)}% van de weg van entry naar ATH`);
+      setText(refs.athFoot, r.toAth == null ? '—' : r.toAth > 0 ? `Nog ${pct(r.toAth, true)} tot de ATH` + (r.athProgress > 0 ? `, ${NF[0].format(r.athProgress * 100)}% van de weg vanaf je entry` : '') : 'Boven de ATH!');
+    }
     el.classList.toggle('near', r.toSl != null && r.toSl < NEAR_SL);
   }
 
@@ -225,6 +260,13 @@
     setText($('k-winners'), String(live.filter((r) => r.pnl > 0).length));
     setText($('k-loss'), usd(loss));
     setText($('k-losspct'), pct(-loss / margin * 100));
+    const athRows = rows.filter((r) => r.ath);
+    if (athRows.length === rows.length) {
+      const athPnl = sum('athPnl', athRows);
+      setText($('k-athpnl'), '+' + usd0(athPnl).replace(/^-/, ''), athPnl >= 0 ? 'up' : 'down');
+      setText($('k-athval'), usd0(margin + athPnl));
+      setText($('k-athx'), xf((margin + athPnl) / margin));
+    }
     const fd = live.every((r) => r.fundingDay != null) ? sum('fundingDay', live) : null;
     setText($('k-fund'), usd(fd), tone(fd));
     const near = live.reduce((a, r) => (a == null || r.toSl < a.toSl ? r : a), null);
@@ -422,6 +464,20 @@
     schedule();
   }
 
+  /* ---------- ATH (CoinGecko, valt terug op trades.js) ---------- */
+  async function loadAth() {
+    const ids = [...new Set(TRADES.map((t) => t.coingecko).filter(Boolean))];
+    if (!ids.length) return;
+    const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=' + ids.join(','), { cache: 'no-store' });
+    if (!res.ok) return;
+    const list = await res.json();
+    TRADES.forEach((t) => {
+      const c = Array.isArray(list) && list.find((x) => x.id === t.coingecko);
+      if (c && c.ath > 0) state.ath[t.symbol] = { ath: c.ath * (t.cgMult || 1), date: c.ath_date };
+    });
+    schedule();
+  }
+
   /* ---------- Bybit WebSocket ---------- */
   let backoff = 1000, pingTimer = null;
   function connect() {
@@ -467,9 +523,11 @@
   render();
   loadTickers().catch(() => {});
   loadKlines().catch(() => {});
+  loadAth().catch(() => {});
   connect();
   // REST-terugval als de WebSocket niet werkt, en candles elke 15 min verversen
   setInterval(() => { if (!state.wsOpen && !document.hidden) loadTickers().catch(() => {}); }, 10000);
   setInterval(() => { if (!document.hidden) loadKlines().catch(() => {}); }, 15 * 60 * 1000);
+  setInterval(() => { if (!document.hidden) loadAth().catch(() => {}); }, 30 * 60 * 1000);
   setInterval(updateStatus, 5000);
 })();
