@@ -11,7 +11,7 @@ window.ORDERS_PLACED = null;
 
 window.TRADES = [
   { name: 'BTC',      symbol: 'BTCUSDT',      entry: 63200,     sl: 51000,   liq: 50727,    margin: 506, leverage: 5, coingecko: 'bitcoin', ath: 126080, athDate: '2025-10-06',
-    opened: null, // exact vulmoment, bijv. '2026-11-19' of '2026-11-19T16:00:00Z' (optioneel)
+    opened: '2026-11-17T12:00:00Z', // uit Bybit: eerste funding 17-11 17:00 (NL-tijd), dus gevuld tussen 09:00 en 17:00
     tps: [{ label: 'TP1', price: 100000, pct: 25 }, { label: 'ATH', price: 126080, pct: 25 }, { label: 'Cyclus', price: 180000, pct: 50 }] },
   { name: 'ETH',      symbol: 'ETHUSDT',      entry: 1794,      sl: 1450,    liq: 1440,     margin: 302, leverage: 5, coingecko: 'ethereum', ath: 4946.05, athDate: '2025-08-24',
     opened: null, // exact vulmoment, bijv. '2026-11-19' of '2026-11-19T16:00:00Z' (optioneel)
