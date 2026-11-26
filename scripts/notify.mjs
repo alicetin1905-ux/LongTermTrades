@@ -1,5 +1,5 @@
 // Stuurt een ntfy-melding zodra de totale PnL met NTFY_THRESHOLD % van je totale marge is veranderd
-// sinds de vorige melding. Draait in GitHub Actions (zie .github/workflows/ntfy.yml).
+// sinds de vorige melding, en zodra een take-profit uit trades.js geraakt wordt. Draait in GitHub Actions (zie .github/workflows/ntfy.yml).
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -115,5 +115,31 @@ if (!state || !isFinite(state.anchorRoe)) {
     console.log(`Verandering sinds ${when(state.anchorAt)}: ${pct(diff)} van de marge (drempel ${THRESHOLD}%). Geen melding.`);
   }
 }
+// Take-profit meldingen: één keer per niveau; opnieuw actief als de koers 10% onder het niveau zakt.
+const fp = (v) => (v >= 10000 ? f2.format(v).replace(/\.\d+$/, '') : v >= 1 ? f2.format(v) : String(Number(v.toPrecision(5))));
+state.tp = state.tp || {};
+const firstTp = !state.tpInit;
+for (const t of TRADES) {
+  const mark = px[t.symbol], qty = t.margin * t.leverage / t.entry;
+  for (const x of (t.tps || []).filter((x) => x && x.price > 0)) {
+    const key = t.symbol + '@' + x.price;
+    if (mark >= x.price) {
+      if (!state.tp[key] && !firstTp) {
+        const part = qty * (x.pct || 0) / 100;
+        await send({
+          title: `Take-profit geraakt: ${t.name} ${x.label || ''} (${fp(x.price)})`.replace('  ', ' '),
+          message: `${t.name} staat op ${fp(mark)}, boven je take-profit van ${fp(x.price)}.\n` +
+            `Plan: verkoop ${x.pct || 0}% van de positie (${part.toLocaleString('en-US', { maximumFractionDigits: part < 1 ? 5 : 2 })} stuks), dat levert ongeveer ${usd(part * (x.price - t.entry))} op.\n` + status,
+          tags: ['moneybag'],
+          priority: 4
+        });
+      }
+      state.tp[key] = true;
+    } else if (mark < x.price * 0.9) {
+      state.tp[key] = false;
+    }
+  }
+}
+state.tpInit = true;
 state.lastPnl = pnl; state.lastRoe = roe; state.lastCheck = now;
 fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));

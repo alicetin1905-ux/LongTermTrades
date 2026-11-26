@@ -71,6 +71,57 @@
     <div class="tiles" id="tiles"></div>
   </section>
 
+  <section class="wrap sec" id="cyclus">
+    <div class="sec-head">
+      <div>
+        <h2>Cyclus-doel</h2>
+        <p class="muted">Waar je uitkomt als BTC een doel haalt en de altcoins meegaan. Geldt alleen als je SL's onderweg niet geraakt worden.</p>
+      </div>
+    </div>
+    <div class="panel cyc">
+      <div class="cyc-ctl">
+        <label for="cyc-btc">BTC-doel <b id="cyc-btc-v">180,000</b></label>
+        <input type="range" id="cyc-btc" min="70000" max="300000" step="5000" value="180000">
+        <div class="scen-presets">
+          <button type="button" data-btc="100000">100k</button>
+          <button type="button" data-btc="126080">ATH</button>
+          <button type="button" data-btc="150000">150k</button>
+          <button type="button" data-btc="180000">180k</button>
+          <button type="button" data-btc="250000">250k</button>
+        </div>
+        <p class="cyc-lbl">Hoe gaan de altcoins mee?</p>
+        <div class="seg seg-full" role="group" aria-label="Hoe gaan de altcoins mee">
+          <button type="button" data-cmode="same" aria-pressed="false">Zelfde % als BTC</button>
+          <button type="button" data-cmode="athlike" aria-pressed="true">Zoals BTC t.o.v. ATH</button>
+          <button type="button" data-cmode="custom" aria-pressed="false">Eigen</button>
+        </div>
+        <div id="cyc-custom" hidden>
+          <label for="cyc-f">Altcoins eindigen op hun ATH <b id="cyc-f-v">+43%</b></label>
+          <input type="range" id="cyc-f" min="-60" max="200" step="1" value="43">
+          <div class="scen-presets">
+            <button type="button" data-f="-30">ATH −30%</button>
+            <button type="button" data-f="0">ATH</button>
+            <button type="button" data-f="43">+43%</button>
+            <button type="button" data-f="100">ATH ×2</button>
+          </div>
+        </div>
+        <p class="muted small" id="cyc-expl">—</p>
+      </div>
+      <div class="cyc-out">
+        <div class="cyc-big">
+          <div><span class="label">Totale PnL</span><b id="cyc-pnl">—</b></div>
+          <div><span class="label">Je marge wordt</span><b id="cyc-val">—</b><small id="cyc-x">—</small></div>
+        </div>
+        <div class="scroll">
+          <table class="tbl cyc-tbl">
+            <thead><tr><th>Munt</th><th>Doel</th><th>t.o.v. ATH</th><th>Vanaf entry</th><th>PnL</th><th>Marge</th></tr></thead>
+            <tbody id="cyc-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="wrap sec" id="overzicht">
     <div class="sec-head">
       <div>
@@ -84,7 +135,7 @@
   <section class="wrap sec" id="scenario">
     <div class="sec-head">
       <div>
-        <h2>Wat als de hele markt beweegt?</h2>
+        <h2>Wat als de markt nu beweegt?</h2>
         <p class="muted">Elke munt beweegt hetzelfde % vanaf nu. Raakt een munt zijn SL, dan telt het verlies bij de SL. Altcoins bewegen in werkelijkheid vaak harder dan BTC.</p>
       </div>
     </div>
@@ -103,6 +154,27 @@
         <p class="muted small" id="s-stops">—</p>
       </div>
       <div class="scen-bars" id="s-bars"></div>
+    </div>
+  </section>
+
+  <section class="wrap sec" id="funding">
+    <div class="sec-head">
+      <div>
+        <h2>Funding</h2>
+        <p class="muted">Bij een positieve funding rate betalen longs. Bybit rekent per interval (meestal 8 uur) af over de waarde van je positie.</p>
+      </div>
+    </div>
+    <div class="kpis kpis-4">
+      <div class="kpi"><span class="label">Nu per dag</span><b id="f-day">—</b><small>bij huidige rates</small></div>
+      <div class="kpi"><span class="label">Per maand</span><b id="f-month">—</b><small>bij huidige rates</small></div>
+      <div class="kpi"><span class="label">Per maand in een bull run</span><b class="down" id="f-bull">—</b><small>bij 0,05% per 8 uur</small></div>
+      <div class="kpi"><span class="label">Betaald sinds opening</span><b id="f-paid">—</b><small id="f-paid-sub">—</small></div>
+    </div>
+    <div class="panel scroll f-panel">
+      <table class="tbl">
+        <thead><tr><th>Munt</th><th>Rate</th><th>Interval</th><th>Per dag</th><th>Per maand</th><th>Geopend</th><th>Betaald</th></tr></thead>
+        <tbody id="f-rows"></tbody>
+      </table>
     </div>
   </section>
 

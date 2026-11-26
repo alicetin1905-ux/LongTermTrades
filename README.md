@@ -5,11 +5,14 @@ Live dashboard voor 8 long posities op 5x, met Bybit-koersen (USDT-perpetuals).
 - **Live koersen** via de publieke Bybit WebSocket (markprijs), met REST als terugval.
 - **Tegel per munt**: markprijs, 24u, PnL en ROE, 7-daagse grafiek met entry-lijn, rail met liquidatie / SL / entry, afstand tot SL en liq, funding, verlies bij SL.
 - **ATH-doel per munt**: hoeveel x vanaf je entry, PnL in USDT en wat je marge wordt als de munt zijn all-time high weer haalt (ATH live van CoinGecko).
+- **Winst nemen**: take-profit plan per munt (prijs + % van de positie) op elke tegel, met ntfy-melding als een niveau geraakt wordt.
+- **Cyclus-doel**: kies een BTC-doel en hoe altcoins meegaan (zelfde % als BTC, zoals BTC t.o.v. ATH, of eigen ATH-factor); elke tegel rekent mee.
+- **Funding**: kosten per dag/maand, wat het in een bull run kost, en wat je al betaald hebt sinds opening (vul `opened` in).
 - **Overzicht** van alle trades op één %-schaal, **scenario-schuif** (hele markt ±%) en een tabel.
 
 ## Posities aanpassen
 
-Alles staat in [`trades.js`](trades.js). Pas entry, SL, liquidatieprijs, marge of hefboom aan, commit, en de site rekent de rest uit.
+Alles staat in [`trades.js`](trades.js). Pas entry, SL, liquidatieprijs, marge, hefboom, take-profits (`tps`) of openingsdatum (`opened`) aan, commit, en de site en de meldingen rekenen de rest uit.
 
 ## Live zetten (GitHub Pages)
 
@@ -26,7 +29,7 @@ Lokaal openen kan ook: dubbelklik `index.html`.
 
 Een GitHub Action (`.github/workflows/ntfy.yml`) checkt elke 5 minuten je totale PnL en stuurt een
 [ntfy](https://ntfy.sh)-melding zodra die met **10% van je totale marge** (≈ 230 USDT) is veranderd
-sinds de vorige melding. Dit werkt ook als de website dicht is.
+sinds de vorige melding, en zodra een take-profit uit `trades.js` geraakt wordt. Dit werkt ook als de website dicht is.
 
 1. Installeer de ntfy-app (iOS/Android) en abonneer je op een eigen, moeilijk te raden topic, bijv. `longtrades-233db67089`.
    Iedereen die het topic kent kan je meldingen lezen, dus houd het geheim.

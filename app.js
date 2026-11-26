@@ -12,7 +12,8 @@
     tickers: {},   // symbol -> laatste Bybit ticker (snapshot + deltas)
     closes: {},    // symbol -> slotkoersen 7 dagen (4u candles)
     ws: null, wsOpen: false, lastTick: 0, restOk: false,
-    sort: 'default', move: -10, shown: {}, ath: {}
+    sort: 'default', move: -10, shown: {}, ath: {}, fundPaid: {},
+    cycle: { btc: 180000, mode: 'athlike', factor: 43 }
   };
 
   /* ---------- formatting ---------- */
@@ -71,7 +72,11 @@
       low24: parseFloat(tk.lowPrice24h) || null,
       funding: isFinite(fr) ? fr * 100 : null,
       fundingDay: isFinite(fr) && has ? -value * fr * (24 / fInt) : null,
+      fundingMonth: isFinite(fr) && has ? -value * fr * (24 / fInt) * 30 : null,
+      fundInt: fInt,
+      fundPaid: state.fundPaid[t.symbol] ?? null,
       ...athFields(t, q, mark),
+      ...tpFields(t, q, mark),
       closes,
       chg7d: closes.length > 1 && has ? (mark / closes[0] - 1) * 100 : null
     };
@@ -89,11 +94,32 @@
       athProgress: mark != null ? Math.max(0, Math.min(1, (mark - t.entry) / (ath - t.entry))) : 0
     };
   }
+  function tpFields(t, q, mark) {
+    const tps = (t.tps || []).filter((x) => x && x.price > 0).slice().sort((a, b) => a.price - b.price).map((x, i) => ({
+      label: x.label || 'TP' + (i + 1), price: x.price, pct: x.pct || 0,
+      hit: mark != null && mark >= x.price,
+      pnl: q * (x.pct || 0) / 100 * (x.price - t.entry),
+      dist: mark != null ? (x.price / mark - 1) * 100 : null
+    }));
+    return { tps, tpPnl: tps.reduce((a, x) => a + x.pnl, 0), tpPct: tps.reduce((a, x) => a + x.pct, 0), tpHits: tps.filter((x) => x.hit).length };
+  }
+  const priceR = (v, sig = 4) => v == null || !isFinite(v) ? '—' : v >= 1000 ? NF[0].format(v) : String(Number(v.toPrecision(sig)));
+  const signed0 = (v) => v == null || !isFinite(v) ? '—' : sign(v) + NF[0].format(Math.abs(v));
   const monthYear = (d) => { const x = new Date(d); return isNaN(x) ? '' : x.toLocaleDateString('nl-NL', { month: 'short', year: 'numeric', timeZone: 'UTC' }); };
   const xf = (v) => v == null || !isFinite(v) ? '—' : (v >= 100 ? NF[0] : v >= 10 ? NF[1] : NF[2]).format(v) + 'x';
 
   /* ---------- tiles: built once, then only attributes and text change ---------- */
   const tileEls = {};
+  function tpBlock(t) {
+    const f = tpFields(t, t.margin * t.leverage / t.entry, null);
+    if (!f.tps.length) return '<div class="t-tp"><div class="tp-head"><b>Winst nemen</b></div><div class="tp-foot">Nog geen take-profits in trades.js.</div></div>';
+    const rest = 100 - f.tpPct;
+    return `<div class="t-tp">
+      <div class="tp-head"><b>Winst nemen</b><span data-k="tpSum">—</span></div>
+      ${f.tps.map((x, i) => `<div class="tp-row" data-k="tp${i}"><span class="tp-l">${esc(x.label)}</span><span class="tp-p">${priceR(x.price, 6)}</span><span class="tp-s">${NF[0].format(x.pct)}%</span><span class="tp-v ${tone(x.pnl)}">${signed0(x.pnl)}</span><span class="tp-d" data-k="tpd${i}">—</span></div>`).join('')}
+      <div class="tp-foot">Hele plan: <b class="${tone(f.tpPnl)}">${signed0(f.tpPnl)} USDT</b>${rest > 0 ? `, ${NF[0].format(rest)}% blijft open` : ''}</div>
+    </div>`;
+  }
   function buildTiles() {
     const box = $('tiles');
     TRADES.forEach((t) => {
@@ -129,6 +155,15 @@
           </div>
           <div class="ath-foot" data-k="athFoot">—</div>
         </div>
+        <div class="t-cyc">
+          <div class="ath-head"><b data-k="cycLabel">Cyclus-doel</b><span data-k="cycPrice">—</span></div>
+          <div class="ath-grid">
+            <div><b data-k="cycX">—</b><small>vanaf entry</small></div>
+            <div><b data-k="cycPnl">—</b><small>USDT PnL</small></div>
+            <div><b data-k="cycMx">—</b><small>op je marge</small></div>
+          </div>
+        </div>
+        ${tpBlock(t)}
         <div class="rail" data-k="rail" role="img">
           <div class="tr"></div><div class="zone" data-k="rZone"></div><div class="fill" data-k="rFill"></div>
           <div class="mk" data-k="rLiq" style="background:var(--down)"></div><div class="mk" data-k="rSl" style="background:var(--warn)"></div>
@@ -150,6 +185,8 @@
           <div><dt>24u hoog</dt><dd data-k="high24">—</dd></div>
           <div><dt>Funding</dt><dd data-k="funding">—</dd></div>
           <div><dt>Funding/dag</dt><dd data-k="fundDay">—</dd></div>
+          <div><dt>Funding/maand</dt><dd data-k="fundMonth">—</dd></div>
+          <div><dt>Funding betaald</dt><dd data-k="fundPaid">—</dd></div>
           <div><dt>Verlies SL</dt><dd class="down">${usd(t.margin * t.leverage / t.entry * (t.sl - t.entry), false)}</dd></div>
           <div><dt>Marge weg</dt><dd class="down">${pct(-(t.sl - t.entry) / t.entry * t.leverage * 100)}</dd></div>
         </dl>`;
@@ -218,6 +255,13 @@
     setText(refs.high24, price(r.high24));
     setText(refs.funding, r.funding == null ? '—' : sign(r.funding) + NF[4].format(Math.abs(r.funding)) + '%');
     setText(refs.fundDay, usd(r.fundingDay, false), tone(r.fundingDay));
+    setText(refs.fundMonth, usd(r.fundingMonth, false), tone(r.fundingMonth));
+    setText(refs.fundPaid, r.fundPaid != null ? usd(r.fundPaid, false) : r.opened ? 'laden…' : 'datum?', r.fundPaid != null ? tone(r.fundPaid) : '');
+    r.tps.forEach((x, i) => {
+      if (refs['tp' + i]) refs['tp' + i].classList.toggle('hit', x.hit);
+      setText(refs['tpd' + i], x.hit ? '✓ geraakt' : x.dist == null ? '—' : pct(x.dist, true));
+    });
+    if (refs.tpSum) setText(refs.tpSum, `${r.tpHits}/${r.tps.length} geraakt`);
     updateSpark(refs, r);
     updateRail(refs, r);
     if (r.ath) {
@@ -393,6 +437,96 @@
     rows.forEach((r, i) => COLS.forEach((c, j) => setText(table.cells[i][j], c[2](r), c[3](r))));
   }
 
+  /* ---------- cyclus-doel ---------- */
+  function cycleCalc(rows) {
+    const c = state.cycle, btc = rows.find((r) => /^BTC/.test(r.symbol));
+    return rows.map((r) => {
+      let target = null;
+      if (r === btc) target = c.btc;
+      else if (c.mode === 'same') target = btc && btc.mark && r.mark ? r.mark * c.btc / btc.mark : null;
+      else if (c.mode === 'athlike') target = btc && btc.ath && r.ath ? r.ath * c.btc / btc.ath : null;
+      else target = r.ath ? r.ath * (1 + c.factor / 100) : null;
+      if (target == null) return { r, target: null };
+      const pnl = r.qty * (target - r.entry);
+      return { r, target, x: target / r.entry, pnl, mx: (r.margin + pnl) / r.margin, vsAth: r.ath ? (target / r.ath - 1) * 100 : null };
+    });
+  }
+  const kfmt = (v) => (v >= 1000 ? NF[v % 1000 ? 1 : 0].format(v / 1000) + 'k' : NF[0].format(v));
+  function updateTileCycle(c) {
+    const { refs } = tileEls[c.r.symbol];
+    setText(refs.cycLabel, 'Cyclus-doel (BTC ' + kfmt(state.cycle.btc) + ')');
+    setText(refs.cycPrice, priceR(c.target) + (c.vsAth != null ? ` (ATH ${pct(c.vsAth, true)})` : ''));
+    setText(refs.cycX, xf(c.x));
+    setText(refs.cycPnl, signed0(c.pnl), tone(c.pnl));
+    setText(refs.cycMx, xf(c.mx));
+  }
+  let cycTable = null;
+  function drawCycle(cyc) {
+    const c = state.cycle, ok = cyc.filter((x) => x.target != null);
+    setText($('cyc-btc-v'), NF[0].format(c.btc));
+    setText($('cyc-f-v'), (c.factor > 0 ? '+' : c.factor < 0 ? '−' : '') + Math.abs(c.factor) + '%');
+    const btc = cyc.find((x) => /^BTC/.test(x.r.symbol));
+    const expl = {
+      same: btc && btc.r.mark ? `BTC gaat ${xf(c.btc / btc.r.mark)} vanaf nu; elke munt stijgt even hard vanaf zijn huidige koers.` : '—',
+      athlike: btc && btc.r.ath ? `BTC ${NF[0].format(c.btc)} is ${pct((c.btc / btc.r.ath - 1) * 100, true)} t.o.v. zijn ATH; elke munt eindigt even ver t.o.v. zijn eigen ATH.` : '—',
+      custom: `Elke altcoin eindigt op zijn eigen ATH ${c.factor >= 0 ? '+' : '−'}${Math.abs(c.factor)}%.`
+    }[c.mode];
+    setText($('cyc-expl'), expl);
+    if (ok.length === cyc.length && ok.length) {
+      const pnl = ok.reduce((a, x) => a + x.pnl, 0), margin = ok.reduce((a, x) => a + x.r.margin, 0);
+      setText($('cyc-pnl'), signed0(pnl) + ' USDT', tone(pnl));
+      setText($('cyc-val'), usd0(margin + pnl));
+      setText($('cyc-x'), xf((margin + pnl) / margin) + ' je inzet');
+    }
+    const tb = $('cyc-rows'), key = cyc.map((x) => x.r.symbol).join();
+    if (!cycTable || cycTable.key !== key) {
+      tb.innerHTML = cyc.map(() => '<tr><td></td><td data-l="Doel"></td><td data-l="t.o.v. ATH"></td><td data-l="Vanaf entry"></td><td data-l="PnL" class="cyc-pnlcell"><span class="cyc-bar"><i></i></span><span></span></td><td data-l="Marge"></td></tr>').join('');
+      cycTable = { key, rows: [...tb.rows] };
+    }
+    const max = Math.max(1, ...ok.map((x) => Math.abs(x.pnl)));
+    cyc.forEach((x, i) => {
+      const cells = cycTable.rows[i].cells;
+      setText(cells[0], x.r.name);
+      setText(cells[1], priceR(x.target));
+      setText(cells[2], x.vsAth == null ? '—' : pct(x.vsAth, true), tone(x.vsAth));
+      setText(cells[3], xf(x.x));
+      setStyle(cells[4].querySelector('i'), 'width', x.pnl != null ? (Math.abs(x.pnl) / max * 100).toFixed(1) + '%' : '0%');
+      setStyle(cells[4].querySelector('i'), 'background', (x.pnl ?? 0) >= 0 ? 'var(--up)' : 'var(--down)');
+      setText(cells[4].lastChild, signed0(x.pnl), tone(x.pnl));
+      setText(cells[5], xf(x.mx));
+    });
+  }
+
+  /* ---------- funding ---------- */
+  let fTable = null;
+  function drawFunding(rows) {
+    const live = rows.filter((r) => r.fundingDay != null);
+    const sum = (k, rs) => rs.reduce((a, r) => a + (r[k] || 0), 0);
+    if (live.length) {
+      setText($('f-day'), usd(sum('fundingDay', live)), tone(sum('fundingDay', live)));
+      setText($('f-month'), usd(sum('fundingMonth', live)), tone(sum('fundingMonth', live)));
+      setText($('f-bull'), usd(-sum('value', live) * 0.0005 * 3 * 30));
+    }
+    const withDate = rows.filter((r) => r.opened), paid = rows.filter((r) => r.fundPaid != null);
+    setText($('f-paid'), paid.length ? usd(sum('fundPaid', paid)) : '—', paid.length ? tone(sum('fundPaid', paid)) : '');
+    setText($('f-paid-sub'), !withDate.length ? 'vul openingsdata in trades.js in' : `${paid.length} van ${rows.length} posities${paid.length < withDate.length ? ', laden…' : ''}`);
+    const tb = $('f-rows'), key = rows.map((r) => r.symbol).join();
+    if (!fTable || fTable.key !== key) {
+      tb.innerHTML = rows.map(() => '<tr><td></td><td data-l="Rate"></td><td data-l="Interval"></td><td data-l="Per dag"></td><td data-l="Per maand"></td><td data-l="Geopend"></td><td data-l="Betaald"></td></tr>').join('');
+      fTable = { key, rows: [...tb.rows] };
+    }
+    rows.forEach((r, i) => {
+      const c = fTable.rows[i].cells;
+      setText(c[0], r.name);
+      setText(c[1], r.funding == null ? '—' : sign(r.funding) + NF[4].format(Math.abs(r.funding)) + '%', r.funding > 0 ? 'down' : r.funding < 0 ? 'up' : '');
+      setText(c[2], r.funding == null ? '—' : NF[0].format(r.fundInt) + ' uur');
+      setText(c[3], usd(r.fundingDay, false), tone(r.fundingDay));
+      setText(c[4], usd(r.fundingMonth, false), tone(r.fundingMonth));
+      setText(c[5], r.opened || '—');
+      setText(c[6], r.fundPaid != null ? usd(r.fundPaid, false) : r.opened ? 'laden…' : '—', r.fundPaid != null ? tone(r.fundPaid) : '');
+    });
+  }
+
   /* ---------- render loop ---------- */
   let pending = false, lastOrder = '';
   function render() {
@@ -410,6 +544,10 @@
     drawLadder(sorted);
     drawScenario(sorted);
     drawTable(sorted);
+    const cyc = cycleCalc(sorted);
+    cyc.forEach(updateTileCycle);
+    drawCycle(cyc);
+    drawFunding(sorted);
     updateStatus();
   }
   function schedule() { if (!pending) { pending = true; setTimeout(() => requestAnimationFrame(render), 400); } }
@@ -478,6 +616,46 @@
     schedule();
   }
 
+  /* ---------- betaalde funding sinds opening (Bybit funding-historie x dagkoers) ---------- */
+  async function loadFundingPaid() {
+    await Promise.allSettled(TRADES.filter((t) => t.opened).map(async (t) => {
+      const start = Date.parse(t.opened + 'T00:00:00Z');
+      if (!isFinite(start) || start > Date.now()) return;
+      const q = t.margin * t.leverage / t.entry;
+      const events = [];
+      let end = Date.now();
+      for (let i = 0; i < 25; i++) {
+        const r = await getJson(`/v5/market/funding/history?category=linear&symbol=${t.symbol}&startTime=${start}&endTime=${end}&limit=200`);
+        const list = r.list || [];
+        if (!list.length) break;
+        events.push(...list);
+        const oldest = Math.min(...list.map((e) => +e.fundingRateTimestamp));
+        if (oldest <= start || list.length < 200) break;
+        end = oldest - 1;
+      }
+      const k = await getJson(`/v5/market/kline?category=linear&symbol=${t.symbol}&interval=D&start=${start}&limit=1000`);
+      const day = {};
+      (k.list || []).forEach((c) => { day[Math.floor(+c[0] / 864e5)] = parseFloat(c[4]); });
+      const days = Object.keys(day).map(Number).sort((a, b) => a - b);
+      const closeAt = (ts) => {
+        const d = Math.floor(ts / 864e5);
+        if (day[d]) return day[d];
+        for (let i = days.length - 1; i >= 0; i--) if (days[i] <= d) return day[days[i]];
+        return t.entry;
+      };
+      const seen = new Set();
+      let paid = 0;
+      events.forEach((e) => {
+        const ts = +e.fundingRateTimestamp;
+        if (ts < start || seen.has(ts)) return;
+        seen.add(ts);
+        paid += parseFloat(e.fundingRate) * q * closeAt(ts);
+      });
+      state.fundPaid[t.symbol] = -paid;
+    }));
+    schedule();
+  }
+
   /* ---------- Bybit WebSocket ---------- */
   let backoff = 1000, pingTimer = null;
   function connect() {
@@ -505,15 +683,26 @@
   function retry() { setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 30000); }
 
   /* ---------- controls ---------- */
-  document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
     state.sort = b.dataset.sort;
-    document.querySelectorAll('.seg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('[data-sort]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     render();
   }));
   const slider = $('move');
   const setMove = (v) => { state.move = v; slider.value = v; drawScenario(sortRows(TRADES.map(calc))); };
   slider.addEventListener('input', () => setMove(+slider.value));
   document.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', () => setMove(+b.dataset.move)));
+  const cycBtn = (sel, fn) => document.querySelectorAll(sel).forEach((b) => b.addEventListener('click', () => { fn(b); render(); }));
+  const cycSlider = $('cyc-btc'), fSlider = $('cyc-f');
+  cycSlider.addEventListener('input', () => { state.cycle.btc = +cycSlider.value; render(); });
+  fSlider.addEventListener('input', () => { state.cycle.factor = +fSlider.value; render(); });
+  cycBtn('[data-btc]', (b) => { state.cycle.btc = +b.dataset.btc; cycSlider.value = b.dataset.btc; });
+  cycBtn('[data-f]', (b) => { state.cycle.factor = +b.dataset.f; fSlider.value = b.dataset.f; });
+  cycBtn('[data-cmode]', (b) => {
+    state.cycle.mode = b.dataset.cmode;
+    document.querySelectorAll('[data-cmode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $('cyc-custom').hidden = state.cycle.mode !== 'custom';
+  });
   let lastW = window.innerWidth;
   window.addEventListener('resize', () => { if (window.innerWidth !== lastW) { lastW = window.innerWidth; schedule(); } });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(); });
@@ -524,10 +713,12 @@
   loadTickers().catch(() => {});
   loadKlines().catch(() => {});
   loadAth().catch(() => {});
+  loadFundingPaid().catch(() => {});
   connect();
   // REST-terugval als de WebSocket niet werkt, en candles elke 15 min verversen
   setInterval(() => { if (!state.wsOpen && !document.hidden) loadTickers().catch(() => {}); }, 10000);
   setInterval(() => { if (!document.hidden) loadKlines().catch(() => {}); }, 15 * 60 * 1000);
   setInterval(() => { if (!document.hidden) loadAth().catch(() => {}); }, 30 * 60 * 1000);
+  setInterval(() => { if (!document.hidden) loadFundingPaid().catch(() => {}); }, 60 * 60 * 1000);
   setInterval(updateStatus, 5000);
 })();
