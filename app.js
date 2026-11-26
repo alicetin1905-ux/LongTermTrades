@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const TRADES = (window.TRADES || []).map((t) => ({ leverage: 5, ...t }));
+  const TRADES = (window.TRADES || []).map((t) => ({ leverage: 5, ...t, placed: t.placed || window.ORDERS_PLACED || null }));
   const REST_HOSTS = ['https://api.bybit.com', 'https://api.bytick.com'];
   const WS_URL = 'wss://stream.bybit.com/v5/public/linear';
   const NEAR_SL = 8; // % afstand tot SL waarbij een tegel oranje oplicht
@@ -12,7 +12,7 @@
     tickers: {},   // symbol -> laatste Bybit ticker (snapshot + deltas)
     closes: {},    // symbol -> slotkoersen 7 dagen (4u candles)
     ws: null, wsOpen: false, lastTick: 0, restOk: false,
-    sort: 'default', move: -10, shown: {}, ath: {}, fundPaid: {},
+    sort: 'default', move: -10, shown: {}, ath: {}, fundPaid: {}, filled: {},
     cycle: { btc: 180000, mode: 'athlike', factor: 43 }
   };
 
@@ -256,7 +256,7 @@
     setText(refs.funding, r.funding == null ? '—' : sign(r.funding) + NF[4].format(Math.abs(r.funding)) + '%');
     setText(refs.fundDay, usd(r.fundingDay, false), tone(r.fundingDay));
     setText(refs.fundMonth, usd(r.fundingMonth, false), tone(r.fundingMonth));
-    setText(refs.fundPaid, r.fundPaid != null ? usd(r.fundPaid, false) : r.opened ? 'laden…' : 'datum?', r.fundPaid != null ? tone(r.fundPaid) : '');
+    setText(refs.fundPaid, r.fundPaid != null ? usd(r.fundPaid, false) : (r.opened || r.placed) ? 'laden…' : 'datum?', r.fundPaid != null ? tone(r.fundPaid) : '');
     r.tps.forEach((x, i) => {
       if (refs['tp' + i]) refs['tp' + i].classList.toggle('hit', x.hit);
       setText(refs['tpd' + i], x.hit ? '✓ geraakt' : x.dist == null ? '—' : pct(x.dist, true));
@@ -507,9 +507,9 @@
       setText($('f-month'), usd(sum('fundingMonth', live)), tone(sum('fundingMonth', live)));
       setText($('f-bull'), usd(-sum('value', live) * 0.0005 * 3 * 30));
     }
-    const withDate = rows.filter((r) => r.opened), paid = rows.filter((r) => r.fundPaid != null);
+    const withDate = rows.filter((r) => r.opened || r.placed), paid = rows.filter((r) => r.fundPaid != null);
     setText($('f-paid'), paid.length ? usd(sum('fundPaid', paid)) : '—', paid.length ? tone(sum('fundPaid', paid)) : '');
-    setText($('f-paid-sub'), !withDate.length ? 'vul openingsdata in trades.js in' : `${paid.length} van ${rows.length} posities${paid.length < withDate.length ? ', laden…' : ''}`);
+    setText($('f-paid-sub'), !withDate.length ? 'vul de orderdatum in trades.js in' : `${paid.length} van ${rows.length} posities${paid.length < withDate.length ? ', laden…' : ''}`);
     const tb = $('f-rows'), key = rows.map((r) => r.symbol).join();
     if (!fTable || fTable.key !== key) {
       tb.innerHTML = rows.map(() => '<tr><td></td><td data-l="Rate"></td><td data-l="Interval"></td><td data-l="Per dag"></td><td data-l="Per maand"></td><td data-l="Geopend"></td><td data-l="Betaald"></td></tr>').join('');
@@ -522,8 +522,9 @@
       setText(c[2], r.funding == null ? '—' : NF[0].format(r.fundInt) + ' uur');
       setText(c[3], usd(r.fundingDay, false), tone(r.fundingDay));
       setText(c[4], usd(r.fundingMonth, false), tone(r.fundingMonth));
-      setText(c[5], r.opened || '—');
-      setText(c[6], r.fundPaid != null ? usd(r.fundPaid, false) : r.opened ? 'laden…' : '—', r.fundPaid != null ? tone(r.fundPaid) : '');
+      const f = state.filled[r.symbol];
+      setText(c[5], f ? new Date(f.ts).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: f.est ? '2-digit' : undefined, minute: f.est ? '2-digit' : undefined }) + (f.est ? ' (berekend)' : '') : r.opened || ((r.placed) ? 'zoeken…' : '—'));
+      setText(c[6], r.fundPaid != null ? usd(r.fundPaid, false) : (r.opened || r.placed) ? 'laden…' : '—', r.fundPaid != null ? tone(r.fundPaid) : '');
     });
   }
 
@@ -617,10 +618,26 @@
   }
 
   /* ---------- betaalde funding sinds opening (Bybit funding-historie x dagkoers) ---------- */
+  // Vulmoment: 'opened' als die is ingevuld, anders het eerste uur na 'placed' waarin de koers je limit-entry raakte.
+  async function fillTime(t) {
+    if (t.opened) { const ts = Date.parse(t.opened.length > 10 ? t.opened : t.opened + 'T00:00:00Z'); return isFinite(ts) ? { ts, est: false } : null; }
+    if (!t.placed) return null;
+    let from = Date.parse(t.placed + 'T00:00:00Z');
+    const span = 1000 * 36e5;
+    for (let i = 0; i < 9 && isFinite(from) && from < Date.now(); i++) {
+      const r = await getJson(`/v5/market/kline?category=linear&symbol=${t.symbol}&interval=60&start=${from}&end=${from + span}&limit=1000`);
+      const hit = (r.list || []).map((c) => [+c[0], parseFloat(c[3])]).sort((a, b) => a[0] - b[0]).find((c) => c[1] <= t.entry);
+      if (hit) return { ts: hit[0], est: true };
+      from += span;
+    }
+    return null;
+  }
   async function loadFundingPaid() {
-    await Promise.allSettled(TRADES.filter((t) => t.opened).map(async (t) => {
-      const start = Date.parse(t.opened + 'T00:00:00Z');
-      if (!isFinite(start) || start > Date.now()) return;
+    await Promise.allSettled(TRADES.filter((t) => t.opened || t.placed).map(async (t) => {
+      const f = await fillTime(t);
+      if (!f || f.ts > Date.now()) return;
+      state.filled[t.symbol] = f;
+      const start = f.ts;
       const q = t.margin * t.leverage / t.entry;
       const events = [];
       let end = Date.now();

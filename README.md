@@ -7,7 +7,7 @@ Live dashboard voor 8 long posities op 5x, met Bybit-koersen (USDT-perpetuals).
 - **ATH-doel per munt**: hoeveel x vanaf je entry, PnL in USDT en wat je marge wordt als de munt zijn all-time high weer haalt (ATH live van CoinGecko).
 - **Winst nemen**: take-profit plan per munt (prijs + % van de positie) op elke tegel, met ntfy-melding als een niveau geraakt wordt.
 - **Cyclus-doel**: kies een BTC-doel en hoe altcoins meegaan (zelfde % als BTC, zoals BTC t.o.v. ATH, of eigen ATH-factor); elke tegel rekent mee.
-- **Funding**: kosten per dag/maand, wat het in een bull run kost, en wat je al betaald hebt sinds opening (vul `opened` in).
+- **Funding**: kosten per dag/maand, wat het in een bull run kost, en wat je al betaald hebt. Vul `ORDERS_PLACED` in (datum waarop je de limit orders plaatste); de site zoekt dan zelf per munt het vulmoment op Bybit.
 - **Overzicht** van alle trades op één %-schaal, **scenario-schuif** (hele markt ±%) en een tabel.
 
 ## Posities aanpassen
