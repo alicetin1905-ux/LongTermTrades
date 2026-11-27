@@ -236,9 +236,9 @@
     const prev = state.shown[r.symbol];
     setText(refs.price, price(r.mark));
     if (prev != null && r.mark != null && r.mark !== prev) {
-      refs.price.classList.remove('flash-up', 'flash-down');
-      void refs.price.offsetWidth;
-      refs.price.classList.add(r.mark > prev ? 'flash-up' : 'flash-down');
+      refs.price.className = 't-price ' + (r.mark > prev ? 'flash-up' : 'flash-down');
+      clearTimeout(refs.flashT);
+      refs.flashT = setTimeout(() => { refs.price.className = 't-price'; }, 700);
     }
     state.shown[r.symbol] = r.mark;
     setText(refs.last, r.last != null ? 'Laatste trade ' + price(r.last) : ' ');
@@ -364,7 +364,8 @@
           tip.hidden = false;
           const tw = tip.offsetWidth;
           tip.style.left = Math.max(0, Math.min(W - tw, x(d.move) - tw / 2)) + 'px';
-          tip.style.top = (yy + 14) + 'px';
+          const th = tip.offsetHeight;
+          tip.style.top = (yy + 14 + th > H ? yy - 14 - th : yy + 14) + 'px';
         });
         hit.addEventListener('pointerleave', () => { tip.hidden = true; });
         svg.appendChild(g);
@@ -529,9 +530,17 @@
   }
 
   /* ---------- render loop ---------- */
-  let pending = false, lastOrder = '';
-  function render() {
+  let pending = false, lastOrder = '', busyUntil = 0, busyTimer = null;
+  const markBusy = () => { busyUntil = Date.now() + 800; };
+  ['scroll', 'touchstart', 'touchmove', 'wheel'].forEach((ev) => window.addEventListener(ev, markBusy, { passive: true }));
+  function render(force) {
     pending = false;
+    // Tijdens scrollen niets aan de pagina veranderen; pas als je stilstaat bijwerken.
+    if (force !== true && Date.now() < busyUntil) {
+      clearTimeout(busyTimer);
+      busyTimer = setTimeout(() => render(), busyUntil - Date.now() + 30);
+      return;
+    }
     const rows = TRADES.map(calc);
     rows.forEach(updateTile);
     const sorted = sortRows(rows);
@@ -703,16 +712,16 @@
   document.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
     state.sort = b.dataset.sort;
     document.querySelectorAll('[data-sort]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-    render();
+    render(true);
   }));
   const slider = $('move');
   const setMove = (v) => { state.move = v; slider.value = v; drawScenario(sortRows(TRADES.map(calc))); };
   slider.addEventListener('input', () => setMove(+slider.value));
   document.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', () => setMove(+b.dataset.move)));
-  const cycBtn = (sel, fn) => document.querySelectorAll(sel).forEach((b) => b.addEventListener('click', () => { fn(b); render(); }));
+  const cycBtn = (sel, fn) => document.querySelectorAll(sel).forEach((b) => b.addEventListener('click', () => { fn(b); render(true); }));
   const cycSlider = $('cyc-btc'), fSlider = $('cyc-f');
-  cycSlider.addEventListener('input', () => { state.cycle.btc = +cycSlider.value; render(); });
-  fSlider.addEventListener('input', () => { state.cycle.factor = +fSlider.value; render(); });
+  cycSlider.addEventListener('input', () => { state.cycle.btc = +cycSlider.value; render(true); });
+  fSlider.addEventListener('input', () => { state.cycle.factor = +fSlider.value; render(true); });
   cycBtn('[data-btc]', (b) => { state.cycle.btc = +b.dataset.btc; cycSlider.value = b.dataset.btc; });
   cycBtn('[data-f]', (b) => { state.cycle.factor = +b.dataset.f; fSlider.value = b.dataset.f; });
   cycBtn('[data-cmode]', (b) => {
